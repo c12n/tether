@@ -1,6 +1,8 @@
 # Tether
 
-Share your iPhone's internet with your iPad or Mac, even when your cellular plan blocks or slows down Personal Hotspot.
+Share your iPhone's internet with your iPad, Mac or travel router, even when your cellular plan blocks or slows down Personal Hotspot.
+
+**Each device needs a WireGuard client.** The free WireGuard app works on an iPad, iPhone or Mac, and most travel routers (GL.iNet, UniFi Travel Router) have one built in. A device without WireGuard can still join the hotspot, but its traffic goes straight out as hotspot traffic and Tether doesn't help it.
 
 <img src="Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="96" alt="Tether icon">
 
@@ -10,13 +12,14 @@ Share your iPhone's internet with your iPad or Mac, even when your cellular plan
 
 Carriers can tell when traffic comes from a device that's connected to your hotspot, and some plans block it or slow it to a crawl. Traffic that comes from the phone itself is fine.
 
-Tether is a small app that runs on your iPhone. Your iPad or Mac still joins the hotspot over Wi-Fi, but instead of sending its traffic straight out, it hands it to Tether. Tether makes the connections itself, so they leave from the iPhone like its own traffic.
+Tether is a small app that runs on your iPhone. Your iPad, Mac or travel router still joins the hotspot, but instead of sending its traffic straight out, its WireGuard client hands it to Tether. Tether makes the connections itself, so they leave from the iPhone like its own traffic.
 
 ```
-iPad or Mac  ──Wi-Fi hotspot──▶  Tether on iPhone  ──cellular──▶  internet
+iPad, Mac or router  ──hotspot──▶  Tether on iPhone  ──cellular──▶  internet
+(WireGuard client)
 ```
 
-Under the hood Tether runs a WireGuard server on UDP port 51820, on the hotspot address `172.20.10.1`. The iPad or Mac uses the free WireGuard app, and everything goes through, calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether ([gVisor](https://gvisor.dev)) makes each connection again from the iPhone. UDP behaves like a full-cone NAT, so calls and games can connect directly. No VPN entitlement or network extension is needed on the iPhone.
+Under the hood Tether runs a WireGuard server on UDP port 51820, on the hotspot address `172.20.10.1`. Each device connects with its WireGuard client, and everything goes through, calls and games included. WireGuard's own code decrypts the traffic and a small TCP/IP stack inside Tether ([gVisor](https://gvisor.dev)) makes each connection again from the iPhone. UDP behaves like a full-cone NAT, so calls and games can connect directly. No VPN entitlement or network extension is needed on the iPhone.
 
 ## Install Tether on your iPhone
 
