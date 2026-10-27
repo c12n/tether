@@ -1,0 +1,45 @@
+# Runs on the self-hosted runner on Viktor's MacBook (label "xcode"). Building an iOS app needs
+# Xcode, so a Linux runner can't do it. Jobs wait in the queue while the MacBook is asleep.
+#
+# The runner is a real machine, so only trusted code may reach it. What enforces that lives outside
+# this file: the repo is private with one collaborator, and Settings > Actions has workflows from
+# fork pull requests turned off. Keep both if the repo ever opens up. The `if` below is a second guard.
+name: CI
+
+# Every branch push runs it, so a branch is green before it's merged into main.
+on:
+  pull_request:
+  push:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash # named explicitly, so steps run with pipefail and a failed build can't hide behind tail
+
+jobs:
+  test:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, xcode]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the WireGuard server
+        run: scripts/build-wireguard.sh # swift test links its macOS slice
+      - name: Unit tests
+        run: swift test
+      - name: WireGuard server tests
+        run: go -C WireGuard test -race ./...
+      - name: Fuzz the UDP replies
+        run: go -C WireGuard test -run '^$' -fuzz FuzzReplyPackets -fuzztime 30s ./...
+      # Fails only on a known vulnerability that Tether's code can reach. Pinned, like the actions.
+      - name: Known vulnerabilities
+        run: go -C WireGuard run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Build the app
+        run: |
+          xcodegen generate --quiet
+          xcodebuild -project Tether.xcodeproj -scheme Tether \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" build | tail -3
