@@ -1,0 +1,90 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: WireGuard/go.mod
+          cache: false
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Ensure app icon exists
+        run: |
+          if [ ! -f Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png ]; then
+            echo "icon-1024.png missing from repo snapshot — regenerating with upstream script"
+            swift scripts/make-icon.swift Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+          fi
+          ls -lh Sources/Assets.xcassets/AppIcon.appiconset/
+
+      - name: Generate Xcode project (also builds WireGuard xcframework)
+        run: xcodegen generate
+
+      - name: Build unsigned Release app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Tether.xcodeproj \
+            -scheme Tether \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_STYLE=Manual \
+            APP_BUNDLE_ID=com.c12n.tether \
+            | tee "$RUNNER_TEMP/xcodebuild.log" | tail -50
+
+      - name: Verify built app
+        run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Tether.app"
+          test -d "$APP" || { echo "Tether.app not found"; ls -R "$RUNNER_TEMP/dd/Build/Products" || true; exit 1; }
+          test -x "$APP/Tether" || { echo "Tether executable missing/not executable"; ls -la "$APP"; exit 1; }
+          echo "--- Info.plist ---"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = "com.c12n.tether"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0"
+          ls -lh "$APP/Tether"
+
+      - name: Package IPA
+        run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Tether.app"
+          rm -rf "$RUNNER_TEMP/staging" Tether.ipa
+          mkdir -p "$RUNNER_TEMP/staging/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/staging/Payload/Tether.app"
+          (cd "$RUNNER_TEMP/staging" && zip -qry "$GITHUB_WORKSPACE/Tether.ipa" Payload)
+          ls -lh Tether.ipa
+          shasum -a 256 Tether.ipa
+          unzip -l Tether.ipa | head -40
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tether-ipa
+          path: Tether.ipa
+          if-no-files-found: error
